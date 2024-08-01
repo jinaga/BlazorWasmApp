@@ -18,7 +18,7 @@ else
             <li>
                 <input type="checkbox"
                     checked="@item.IsCompleted"
-                    @onclick="(e) => SetCompleted(item, e)"
+                    @onclick="async (e) => await SetCompleted(item, e)"
                     @onclick:preventDefault />
                 @item.Description
             </li>
@@ -93,7 +93,8 @@ else
             projection.Competed.OnAdded(completed =>
             {
                 logger.LogInformation("Item completed");
-                itemViewModel.IsCompleted = true;
+                // The UI doesn't update when this line is uncommented.
+                //itemViewModel.IsCompleted = true;
                 StateHasChanged();
             });
 
@@ -116,18 +117,18 @@ else
         observer?.Stop();
     }
 
-    private void SetCompleted(ItemViewModel item, MouseEventArgs e)
+    private async Task SetCompleted(ItemViewModel item, MouseEventArgs e)
     {
         logger.LogInformation($"Setting completed. Was {item.IsCompleted}.");
         if (!item.IsCompleted)
         {
-            item.SetCompleted(jinagaClient).ContinueWith(t =>
-            {
-                if (t.IsFaulted)
-                {
-                    logger.LogError(t.Exception, "Failed to set completed");
-                }
-            });
+            await item.SetCompleted(jinagaClient);
+
+            // None of this should be necessary.
+            await Task.Delay(1000);
+            logger.LogInformation($"Set completed. Now {item.IsCompleted}.");
+            item.IsCompleted = true;
+            StateHasChanged();
         }
     }
 }
