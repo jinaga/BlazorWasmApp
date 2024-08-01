@@ -71,8 +71,7 @@ else
             projection.Competed.OnAdded(completed =>
             {
                 logger.LogInformation("Item completed");
-                // The UI doesn't update when this line is uncommented.
-                //itemViewModel.IsCompleted = true;
+                itemViewModel.IsCompleted = true;
                 StateHasChanged();
             });
 
@@ -101,12 +100,6 @@ else
         if (!item.IsCompleted)
         {
             await item.SetCompleted(jinagaClient);
-
-            // None of this should be necessary.
-            await Task.Delay(1000);
-            logger.LogInformation($"Set completed. Now {item.IsCompleted}.");
-            item.IsCompleted = true;
-            StateHasChanged();
         }
     }
 }
