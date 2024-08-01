@@ -1,0 +1,104 @@
+@page "/todo"
+@using Jinaga
+@inject JinagaClient jinagaClient
+@implements IDisposable
+
+<h1>ToDo</h1>
+
+@if (items == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <ul>
+        @foreach (var item in items)
+        {
+            <li>
+                <input type="checkbox" @bind="item.IsCompleted" />
+                @item.Description
+            </li>
+        }
+    </ul>
+}
+
+@code
+{
+    [FactType("ToDo.List")]
+    public record List(string identifier)
+    {
+        public Relation<Item> Items => Relation.Define(facts =>
+            facts.OfType<Item>(item => item.list == this)
+        );
+    }
+
+    [FactType("ToDo.Item")]
+    public record Item(List list, string description)
+    {
+        public Relation<Completed> Completed => Relation.Define(facts =>
+            facts.OfType<Completed>(completed => completed.item == this)
+        );
+        public Condition IsCompleted => Condition.Define(facts =>
+            this.Completed.Any()
+        );
+    }
+
+    [FactType("ToDo.Item.Completed")]
+    public record Completed(Item item);
+
+    public class ItemViewModel
+    {
+        public string Description { get; set; } = "";
+        public bool IsCompleted { get; set; }
+    }
+
+    private List<ItemViewModel> items { get; set; } = new List<ItemViewModel>();
+    private IObserver? observer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var itemsInList = Given<List>.Match((list, facts) =>
+            list.Items.Select(item => new
+            {
+                Description = item.description,
+                Competed = facts.Observable(item.Completed)
+            })
+        );
+        var list = await jinagaClient.Fact(new List("ToDo"));
+        observer = jinagaClient.Watch(itemsInList, list, projection =>
+        {
+            var itemViewModel = new ItemViewModel
+            {
+                Description = projection.Description,
+                IsCompleted = false
+            };
+
+            projection.Competed.OnAdded(completed =>
+            {
+                itemViewModel.IsCompleted = true;
+                StateHasChanged();
+            });
+
+            items.Add(itemViewModel);
+            StateHasChanged();
+
+            return () =>
+            {
+                items.Remove(itemViewModel);
+                StateHasChanged();
+            };
+        });
+
+        await observer.Loaded;
+
+        // Add some test items
+        await jinagaClient.Fact(new Item(list, "Buy milk"));
+        await jinagaClient.Fact(new Item(list, "Walk the dog"));
+        await jinagaClient.Fact(new Item(list, "Do the laundry"));
+    }
+
+    public void Dispose()
+    {
+        observer?.Stop();
+    }
+}
