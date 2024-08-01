@@ -1,24 +1,24 @@
 @page "/todo"
 @using Jinaga
-@inject JinagaClient jinagaClient
-@inject ILogger<Todo> logger
+@using ViewModels.Todo
+@inject TodoViewModel viewModel
 @implements IDisposable
 
 <h1>ToDo</h1>
 
-@if (items == null)
+@if (viewModel.Items == null)
 {
     <p><em>Loading...</em></p>
 }
 else
 {
     <ul>
-        @foreach (var item in items)
+        @foreach (var item in viewModel.Items)
         {
             <li>
                 <input type="checkbox"
                     checked="@item.IsCompleted"
-                    @onclick="async (e) => await SetCompleted(item, e)"
+                    @onclick="async (e) => await viewModel.SetCompleted(item)"
                     @onclick:preventDefault />
                 @item.Description
             </li>
@@ -28,78 +28,13 @@ else
 
 @code
 {
-    public class ItemViewModel(Item item)
-    {
-        public string Description { get; set; } = "";
-        public bool IsCompleted { get; set; }
-
-        public async Task SetCompleted(JinagaClient jinagaClient)
-        {
-            await jinagaClient.Fact(new Completed(item));
-        }
-    }
-
-    private List<ItemViewModel> items { get; set; } = new List<ItemViewModel>();
-    private IObserver? observer;
-
     protected override async Task OnInitializedAsync()
     {
-        var itemsInList = Given<List>.Match((list, facts) =>
-            list.Items.Select(item => new
-            {
-                Item = item,
-                Description = item.description,
-                Competed = facts.Observable(item.Completed)
-            })
-        );
-        var list = await jinagaClient.Fact(new List("ToDo"));
-
-        // Add some test items
-        await jinagaClient.Fact(new Item(list, "Buy milk"));
-        await jinagaClient.Fact(new Item(list, "Walk the dog"));
-        var laundry = await jinagaClient.Fact(new Item(list, "Do the laundry"));
-        await jinagaClient.Fact(new Completed(laundry));
-
-        observer = jinagaClient.Watch(itemsInList, list, projection =>
-        {
-            var itemViewModel = new ItemViewModel(projection.Item)
-            {
-                Description = projection.Description,
-                IsCompleted = false
-            };
-
-            projection.Competed.OnAdded(completed =>
-            {
-                logger.LogInformation("Item completed");
-                itemViewModel.IsCompleted = true;
-                StateHasChanged();
-            });
-
-            items.Add(itemViewModel);
-            StateHasChanged();
-
-            return () =>
-            {
-                items.Remove(itemViewModel);
-                StateHasChanged();
-            };
-        });
-
-        await observer.Loaded;
-        logger.LogInformation("Loaded items in list");
+        await viewModel.Load(StateHasChanged);
     }
 
     public void Dispose()
     {
-        observer?.Stop();
-    }
-
-    private async Task SetCompleted(ItemViewModel item, MouseEventArgs e)
-    {
-        logger.LogInformation($"Setting completed. Was {item.IsCompleted}.");
-        if (!item.IsCompleted)
-        {
-            await item.SetCompleted(jinagaClient);
-        }
+        viewModel.Unload();
     }
 }
