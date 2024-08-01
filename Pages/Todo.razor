@@ -1,6 +1,7 @@
 @page "/todo"
 @using Jinaga
 @inject JinagaClient jinagaClient
+@inject ILogger<Todo> logger
 @implements IDisposable
 
 <h1>ToDo</h1>
@@ -15,7 +16,10 @@ else
         @foreach (var item in items)
         {
             <li>
-                <input type="checkbox" @bind="item.IsCompleted" />
+                <input type="checkbox"
+                    checked="@item.IsCompleted"
+                    @onclick="(e) => SetCompleted(item, e)"
+                    @onclick:preventDefault />
                 @item.Description
             </li>
         }
@@ -46,10 +50,15 @@ else
     [FactType("ToDo.Item.Completed")]
     public record Completed(Item item);
 
-    public class ItemViewModel
+    public class ItemViewModel(Item item)
     {
         public string Description { get; set; } = "";
         public bool IsCompleted { get; set; }
+
+        public async Task SetCompleted(JinagaClient jinagaClient)
+        {
+            await jinagaClient.Fact(new Completed(item));
+        }
     }
 
     private List<ItemViewModel> items { get; set; } = new List<ItemViewModel>();
@@ -60,14 +69,22 @@ else
         var itemsInList = Given<List>.Match((list, facts) =>
             list.Items.Select(item => new
             {
+                Item = item,
                 Description = item.description,
                 Competed = facts.Observable(item.Completed)
             })
         );
         var list = await jinagaClient.Fact(new List("ToDo"));
+
+        // Add some test items
+        await jinagaClient.Fact(new Item(list, "Buy milk"));
+        await jinagaClient.Fact(new Item(list, "Walk the dog"));
+        var laundry = await jinagaClient.Fact(new Item(list, "Do the laundry"));
+        await jinagaClient.Fact(new Completed(laundry));
+
         observer = jinagaClient.Watch(itemsInList, list, projection =>
         {
-            var itemViewModel = new ItemViewModel
+            var itemViewModel = new ItemViewModel(projection.Item)
             {
                 Description = projection.Description,
                 IsCompleted = false
@@ -75,6 +92,7 @@ else
 
             projection.Competed.OnAdded(completed =>
             {
+                logger.LogInformation("Item completed");
                 itemViewModel.IsCompleted = true;
                 StateHasChanged();
             });
@@ -90,15 +108,26 @@ else
         });
 
         await observer.Loaded;
-
-        // Add some test items
-        await jinagaClient.Fact(new Item(list, "Buy milk"));
-        await jinagaClient.Fact(new Item(list, "Walk the dog"));
-        await jinagaClient.Fact(new Item(list, "Do the laundry"));
+        logger.LogInformation("Loaded items in list");
     }
 
     public void Dispose()
     {
         observer?.Stop();
+    }
+
+    private void SetCompleted(ItemViewModel item, MouseEventArgs e)
+    {
+        logger.LogInformation($"Setting completed. Was {item.IsCompleted}.");
+        if (!item.IsCompleted)
+        {
+            item.SetCompleted(jinagaClient).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    logger.LogError(t.Exception, "Failed to set completed");
+                }
+            });
+        }
     }
 }
